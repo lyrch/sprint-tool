@@ -1,0 +1,13 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+jira = {editable = true, ref = "allow_sprint_updates", git = "https://github.com/lyrch/jira"}
+requests-kerberos = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.6"
