@@ -10,32 +10,48 @@ def run():
     options = { 'server': args.jira_server, 'agile_rest_path': 'agile' }
     jira_agile_instance = JIRA(options,
                                auth=(args.jira_user,
-                               args.jira_password),
-                              )
+                                     args.jira_password))
 
     user = jira_agile_instance.current_user()
 
     # Get lists of the current open sprints and the future sprints for this
     # board.
-    current_sprints = get_current_sprints(jira_agile_instance, args.jira_board)
-    future_sprints = get_future_sprints(jira_agile_instance, args.jira_board)
+    current_sprints = get_current_sprints(jira_agile_instance,
+                                          args.jira_board)
+    future_sprints = get_future_sprints(jira_agile_instance,
+                                        args.jira_board)
     
     # Get the ids of the sprints we will want to close and start
-    current_sprint_id = find_current_sprint_id(current_sprints, args.sprint_name)
-    next_sprint_id = find_next_sprint_id(future_sprints, args.sprint_name)
+    current_sprint_id = find_current_sprint_id(current_sprints,
+                                               args.sprint_name)
+    next_sprint_id = find_next_sprint_id(future_sprints,
+                                         args.sprint_name)
 
-    new_sprint_name = find_new_sprint_name(future_sprints, args.sprint_name)
+    new_sprint_name = find_new_sprint_name(future_sprints,
+                                           args.sprint_name)
 
-    issue_keys = get_unfinished_issue_keys(jira_agile_instance, args.jira_board,
-                          current_sprint_id)
+    issue_keys = get_unfinished_issue_keys(jira_agile_instance,
+                                           args.jira_board,
+                                           current_sprint_id)
     if args.roll_sprints:
-        create_new_sprint(jira_agile_instance, args.jira_board, new_sprint_name)
-        close_current_sprint(jira_agile_instance, args.jira_board, current_sprint_id)
-        start_next_sprint(jira_agile_instance, args.jira_board, next_sprint_id)
-        move_issues_to_next_sprint(jira_agile_instance, next_sprint_id, issue_keys)
+        create_new_sprint(jira_agile_instance,
+                          args.jira_board,
+                          new_sprint_name)
+        close_current_sprint(jira_agile_instance,
+                             args.jira_board,
+                             current_sprint_id)
+        start_next_sprint(jira_agile_instance,
+                          args.jira_board,
+                          next_sprint_id)
+        move_issues_to_next_sprint(jira_agile_instance,
+                                   next_sprint_id,
+                                   issue_keys)
 
-def move_issues_to_next_sprint(jira_agile_instance, next_sprint_id, issue_keys):
-    jira_agile_instance.add_issues_to_sprint(next_sprint_id, issue_keys)
+
+def create_new_sprint(jira_instance, board_id, sprint_name):
+    print('Creating new sprint')
+    print(sprint_name)
+    jira_instance.create_sprint(sprint_name, board_id)
 
 def get_unfinished_issue_keys(jira_instance, board_id, sprint_id):
     jql_query = "sprint={sprint_id} AND status != DONE".format(sprint_id=sprint_id)
@@ -44,23 +60,6 @@ def get_unfinished_issue_keys(jira_instance, board_id, sprint_id):
     for issue in unfinished_issues:
         issue_keys.append(issue.key)
     return issue_keys
-
-def start_next_sprint(jira_instance, board_id, sprint_id):
-    start_date = datetime.now().isoformat()
-    end_date = (datetime.now() + timedelta(days=14)).isoformat()
-
-    print('Next Sprint')
-    print(sprint_id)
-    print('Start date')
-    print(start_date)
-    print('End date')
-    print(end_date)
-    sprint = jira_instance.sprint(sprint_id)
-    jira_instance.update_sprint(sprint_id,
-                                name=sprint.name,
-                                startDate=start_date,
-                                endDate=end_date,
-                                state='ACTIVE')
 
 def close_current_sprint(jira_instance, board_id, sprint_id):
 
@@ -72,19 +71,6 @@ def close_current_sprint(jira_instance, board_id, sprint_id):
                                 startDate=sprint.startDate,
                                 endDate=sprint.endDate,
                                 state='CLOSED')
-
-def create_new_sprint(jira_instance, board_id, sprint_name):
-    print('Creating new sprint')
-    print(sprint_name)
-    jira_instance.create_sprint(sprint_name, board_id)
-
-def get_current_sprints(jira_instance, board_id):
-    sprints = jira_instance.sprints(board_id, state='active')
-    return sprints
-
-def get_future_sprints(jira_instance, board_id):
-    sprints = jira_instance.sprints(board_id, state='future')
-    return sprints
 
 def find_current_sprint_id(sprints, sprint_name):
     sprint_id = None
@@ -98,6 +84,22 @@ def find_current_sprint_id(sprints, sprint_name):
     print('Current sprint:')
     print(sprint_id)
     return sprint_id
+
+# This should probably have different logic allowing for a different token to
+# split on or just matching numbers at the end of the string, but this works for
+# now.
+
+def find_new_sprint_name(sprints, sprint_name):
+    sprint_numbers = []
+    for sprint in sprints:
+        # Split the sprint string into  the name and number then trim whitespace
+        split = [token.strip() for token in sprint.name.split('#')]
+        if sprint_name == split[0]:
+            sprint_numbers.append(split[1])
+    sprint_numbers.sort()
+    next_sprint_number = int(sprint_numbers[-1]) + 1
+    return "{sprint_name} #{sprint_number}".format(sprint_name=sprint_name,
+                                                   sprint_number=next_sprint_number)
 
 def find_next_sprint_id(sprints, sprint_name):
     sprint_id = None
@@ -120,21 +122,34 @@ def find_next_sprint_id(sprints, sprint_name):
     print(sprint_id)
     return sprint_id
 
-# This should probably have different logic allowing for a different token to
-# split on or just matching numbers at the end of the string, but this works for
-# now.
+def get_current_sprints(jira_instance, board_id):
+    sprints = jira_instance.sprints(board_id, state='active')
+    return sprints
 
-def find_new_sprint_name(sprints, sprint_name):
-    sprint_numbers = []
-    for sprint in sprints:
-        # Split the sprint string into  the name and number then trim whitespace
-        split = [token.strip() for token in sprint.name.split('#')]
-        if sprint_name == split[0]:
-            sprint_numbers.append(split[1])
-    sprint_numbers.sort()
-    next_sprint_number = int(sprint_numbers[-1]) + 1
-    return "{sprint_name} #{sprint_number}".format(sprint_name=sprint_name,
-                                                   sprint_number=next_sprint_number)
+def get_future_sprints(jira_instance, board_id):
+    sprints = jira_instance.sprints(board_id, state='future')
+    return sprints
+
+def move_issues_to_next_sprint(jira_agile_instance, next_sprint_id, issue_keys):
+    jira_agile_instance.add_issues_to_sprint(next_sprint_id,
+                                             issue_keys)
+
+def start_next_sprint(jira_instance, board_id, sprint_id):
+    start_date = datetime.now().isoformat()
+    end_date = (datetime.now() + timedelta(days=14)).isoformat()
+
+    print('Next Sprint')
+    print(sprint_id)
+    print('Start date')
+    print(start_date)
+    print('End date')
+    print(end_date)
+    sprint = jira_instance.sprint(sprint_id)
+    jira_instance.update_sprint(sprint_id,
+                                name=sprint.name,
+                                startDate=start_date,
+                                endDate=end_date,
+                                state='ACTIVE')
 
 def parse_args():
     parser = argparse.ArgumentParser(usage='sprint-tool [OPTIONS]')
