@@ -13,12 +13,6 @@ def run():
                                args.jira_password),
                               )
 
-    greenhopper_options = { 'server': args.jira_server }
-    jira_greenhopper_instance = JIRA(greenhopper_options,
-                               auth=(args.jira_user,
-                               args.jira_password),
-                              )
-
     user = jira_agile_instance.current_user()
 
     # Get lists of the current open sprints and the future sprints for this
@@ -32,10 +26,24 @@ def run():
 
     new_sprint_name = find_new_sprint_name(future_sprints, args.sprint_name)
 
+    issue_keys = get_unfinished_issue_keys(jira_agile_instance, args.jira_board,
+                          current_sprint_id)
     if args.roll_sprints:
         create_new_sprint(jira_agile_instance, args.jira_board, new_sprint_name)
         close_current_sprint(jira_agile_instance, args.jira_board, current_sprint_id)
         start_next_sprint(jira_agile_instance, args.jira_board, next_sprint_id)
+        move_issues_to_next_sprint(jira_agile_instance, next_sprint_id, issue_keys)
+
+def move_issues_to_next_sprint(jira_agile_instance, next_sprint_id, issue_keys):
+    jira_agile_instance.add_issues_to_sprint(next_sprint_id, issue_keys)
+
+def get_unfinished_issue_keys(jira_instance, board_id, sprint_id):
+    jql_query = "sprint={sprint_id} AND status != DONE".format(sprint_id=sprint_id)
+    unfinished_issues = jira_instance.search_issues(jql_query)
+    issue_keys = []
+    for issue in unfinished_issues:
+        issue_keys.append(issue.key)
+    return issue_keys
 
 def start_next_sprint(jira_instance, board_id, sprint_id):
     start_date = datetime.now().isoformat()
