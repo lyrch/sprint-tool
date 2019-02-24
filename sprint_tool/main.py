@@ -14,26 +14,26 @@ def run():
 
     user = jira_agile_instance.current_user()
 
-    # Get lists of the current open sprints and the future sprints for this
-    # board.
-    current_sprints = get_current_sprints(jira_agile_instance,
-                                          args.jira_board)
-    future_sprints = get_future_sprints(jira_agile_instance,
-                                        args.jira_board)
-    
-    # Get the ids of the sprints we will want to close and start
-    current_sprint_id = find_current_sprint_id(current_sprints,
-                                               args.sprint_name)
-    next_sprint_id = find_next_sprint_id(future_sprints,
-                                         args.sprint_name)
-
-    new_sprint_name = find_new_sprint_name(future_sprints,
-                                           args.sprint_name)
-
-    issue_keys = get_unfinished_issue_keys(jira_agile_instance,
-                                           args.jira_board,
-                                           current_sprint_id)
     if args.roll_sprints:
+        # Get lists of the current open sprints and the future sprints for this
+        # board.
+        current_sprints = get_current_sprints(jira_agile_instance,
+                                              args.jira_board)
+        future_sprints = get_future_sprints(jira_agile_instance,
+                                            args.jira_board)
+
+        # Get the ids of the sprints we will want to close and start
+        current_sprint_id = find_current_sprint_id(current_sprints,
+                                                   args.sprint_name)
+        next_sprint_id = find_next_sprint_id(future_sprints,
+                                             args.sprint_name)
+
+        new_sprint_name = find_new_sprint_name(future_sprints,
+                                               args.sprint_name)
+
+        issue_keys = get_unfinished_issue_keys(jira_agile_instance,
+                                               args.jira_board,
+                                               current_sprint_id)
         create_new_sprint(jira_agile_instance,
                           args.jira_board,
                           new_sprint_name)
@@ -46,12 +46,18 @@ def run():
         move_issues_to_next_sprint(jira_agile_instance,
                                    next_sprint_id,
                                    issue_keys)
+    elif args.copy_epic_to_task:
+        if not args.project_id or not args.epic_id or not args.role:
+            print("To copy an epic you must input project, epic and role")
+        copy_epic_to_task(jira_agile_instance, args.project_id, args.epic_id,
+                          args.role)
 
 
 def create_new_sprint(jira_instance, board_id, sprint_name):
     print('Creating new sprint')
     print(sprint_name)
     jira_instance.create_sprint(sprint_name, board_id)
+
 
 def get_unfinished_issue_keys(jira_instance, board_id, sprint_id):
     jql_query = "sprint={sprint_id} AND status != DONE".format(sprint_id=sprint_id)
@@ -71,6 +77,62 @@ def close_current_sprint(jira_instance, board_id, sprint_id):
                                 startDate=sprint.startDate,
                                 endDate=sprint.endDate,
                                 state='CLOSED')
+
+def copy_epic_to_task(jira_instance, project_id, epic_id, copy_to_role):
+    """copies an epic into tasks assigned to all the users in a specified role
+    """
+    print('Copy epic to tasks')
+    print(epic_id)
+
+    def get_values(field, f_name=None):
+        """inner function that gets the current values out of jira objects"""
+        f = f_name or "id"
+        if isinstance(field, list):
+            return [{f: getattr(val, f)} for val in field]
+        else:
+            return {f: getattr(field, f)}
+
+    # find custom field names to get epic field
+    custom_map = {fld['name']: fld['id'] for fld in jira_instance.fields()}
+    epic = jira_instance.issue(epic_id)
+    role_id = jira_instance.project_roles(project_id)[copy_to_role]["id"]
+    epic_flds = {"issuetype": {"name": "Task"},
+                 custom_map["Epic Link"]: epic_id,
+                 "project": get_values(epic.fields.project),
+                 "summary": epic.fields.summary,
+                 "description": epic.fields.description,
+                 "labels": epic.fields.labels,
+                 "components": get_values(epic.fields.components),
+                 "fixVersions": get_values(epic.fields.fixVersions),
+                 "priority": get_values(epic.fields.priority),
+                 "reporter": get_values(epic.fields.reporter, "name")}
+    # gets the list of tasks already assigned to the epic to prevent dups
+    existing = [issue.fields.assignee.name for issue in
+                jira_instance.search_issues(
+                    'project=%s and issueType=Task and "Epic Link"=%s' %
+                    (project_id, epic_id))]
+    task_fields = []
+    for actor in jira_instance.project_role(project_id, role_id).actors:
+        if actor.name not in existing:
+            fields = epic_flds.copy()
+            fields["assignee"] = get_values(actor, "name")
+            task_fields.append(fields)
+
+    success = 0
+    error = 0
+    existing = len(existing)
+    if task_fields:
+        results = jira_instance.create_issues(task_fields)
+        for result in results:
+            if result["status"] == "Success":
+                success += 1
+            else:
+                error += 1
+                print("%s - %s" % result["input_fields"]["assignee"]["name"],
+                      result["error"])
+    print("Successful: %s\nErrors: %s\nExisting Tasks: %s\n" %
+          (success, error, existing))
+
 
 def find_current_sprint_id(sprints, sprint_name):
     sprint_id = None
@@ -157,7 +219,22 @@ def parse_args():
                         action='store',
                         type=str,
                         dest='jira_board',
-                        help='Jira board to work with')
+                        help='Jira board to work with'),
+    parser.add_argument('--copy_epic_to_task',
+                        action='store_true',
+                        dest='copy_epic_to_task',
+                        help='Copy the specified epic to tasks for everyone'
+                             ' in the specified role'),
+    parser.add_argument('-e', '--epic',
+                        action='store',
+                        type=str,
+                        dest='epic_id',
+                        help='epic to work with'),
+    parser.add_argument('-j', '--project',
+                        action='store',
+                        type=str,
+                        dest='project_id',
+                        help='Project to work with'),
     parser.add_argument('-l', '--sprint-length',
                         action='store',
                         type=int,
@@ -168,6 +245,11 @@ def parse_args():
                         type=str,
                         dest='jira_password',
                         help='User password for Jira login')
+    parser.add_argument('--role',
+                        action='store',
+                        type=str,
+                        dest='role',
+                        help='The role to process the actions against'),
     parser.add_argument('-r', '--roll-sprints',
                         action='store_true',
                         dest='roll_sprints',
@@ -194,4 +276,3 @@ def parse_args():
     args = parser.parse_args()
 
     return args
-
