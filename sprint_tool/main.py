@@ -2,6 +2,7 @@ from jira import JIRA
 import argparse
 from datetime import datetime, timedelta
 import re
+import ast
 
 def run():
     args = parse_args()
@@ -50,7 +51,7 @@ def run():
         if not args.project_id or not args.epic_id or not args.role:
             print("To copy an epic you must input project, epic and role")
         copy_epic_to_task(jira_agile_instance, args.project_id, args.epic_id,
-                          args.role)
+                          args.role, args.watchers)
 
 
 def create_new_sprint(jira_instance, board_id, sprint_name):
@@ -78,7 +79,7 @@ def close_current_sprint(jira_instance, board_id, sprint_id):
                                 endDate=sprint.endDate,
                                 state='CLOSED')
 
-def copy_epic_to_task(jira_instance, project_id, epic_id, copy_to_role):
+def copy_epic_to_task(jira_instance, project_id, epic_id, copy_to_role, watchers):
     """copies an epic into tasks assigned to all the users in a specified role
     """
     print('Copy epic to tasks')
@@ -126,6 +127,16 @@ def copy_epic_to_task(jira_instance, project_id, epic_id, copy_to_role):
         for result in results:
             if result["status"] == "Success":
                 success += 1
+                if watchers:
+                    for watchman in watchers:
+                        if result["input_fields"]["assignee"]["name"] \
+                                in watchers[watchman]:
+                            try:
+                                jira_instance.add_watcher(
+                                    result["issue"].key, watchman)
+                            except jira.exceptions.JIRAError:
+                                print ("error adding watcher: %s, %s" %
+                                       (result["issue"].key, watchman))
             else:
                 error += 1
                 print("%s - %s" % result["input_fields"]["assignee"]["name"],
@@ -272,7 +283,15 @@ def parse_args():
                         action='store',
                         type=str,
                         dest='jira_user',
-                        help='Username for Jira login')
+                        help='Username for Jira login'),
+    parser.add_argument('--watch',
+                        type=lambda watchdict: ast.literal_eval(watchdict),
+                        action='store',
+                        dest='watchers',
+                        help="""
+                             Add watchers for specific users. This is a
+                             a dictionary, watcher: list of watchees:
+                             {"watcher": ["to_watch_1","to_watch_2"]}""")
     args = parser.parse_args()
 
     return args
