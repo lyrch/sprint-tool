@@ -1,4 +1,5 @@
 from jira import JIRA
+import jira
 import argparse
 from datetime import datetime, timedelta
 import re
@@ -79,7 +80,6 @@ def close_current_sprint(jira_instance, board_id, sprint_id):
                                 endDate=sprint.endDate,
                                 state='CLOSED')
 
-
 def copy_epic_to_task(jira_instance, project_id, epic_id, copy_to_role,
                       watchers, assignees):
     """copies an epic into tasks assigned to all the users in a specified role
@@ -144,7 +144,7 @@ def copy_epic_to_task(jira_instance, project_id, epic_id, copy_to_role,
                             try:
                                 jira_instance.add_watcher(
                                     result["issue"].key, watchman)
-                            except jira_instance.exceptions.JIRAError:
+                            except jira.exceptions.JIRAError:
                                 print ("error adding watcher: %s, %s" %
                                        (result["issue"].key, watchman))
             else:
