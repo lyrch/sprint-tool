@@ -49,7 +49,7 @@ def run():
                                    next_sprint_id,
                                    issue_keys)
     elif args.copy_epic_to_task:
-        if not args.project_id or not args.epic_id or not args.role:
+        if not args.project_id or not args.epic_id or not (args.role or args.assignees):
             print("To copy an epic you must input project, epic and role")
         copy_epic_to_task(jira_agile_instance, args.project_id, args.epic_id,
                           args.role, args.watchers, args.assignees)
@@ -149,8 +149,8 @@ def copy_epic_to_task(jira_instance, project_id, epic_id, copy_to_role,
                                        (result["issue"].key, watchman))
             else:
                 error += 1
-                print("%s - %s" % result["input_fields"]["assignee"]["name"],
-                      result["error"])
+                print("%s - %s" % (result["input_fields"]["assignee"]["name"],
+                      result["error"]))
     print("Successful: %s\nErrors: %s\nExisting Tasks: %s\n" %
           (success, error, existing))
 
