@@ -138,7 +138,7 @@ def copy_epic_to_task(jira_instance, project_id, epic_id, copy_to_role,
             if result["status"] == "Success":
                 success += 1
                 if watchers:
-                    for watcer in watchers:
+                    for watcher in watchers:
                         if result["input_fields"]["assignee"]["name"] \
                                 in watchers[watcher]:
                             try:
