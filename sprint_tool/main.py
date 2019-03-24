@@ -138,15 +138,15 @@ def copy_epic_to_task(jira_instance, project_id, epic_id, copy_to_role,
             if result["status"] == "Success":
                 success += 1
                 if watchers:
-                    for watchman in watchers:
+                    for watcer in watchers:
                         if result["input_fields"]["assignee"]["name"] \
-                                in watchers[watchman]:
+                                in watchers[watcher]:
                             try:
                                 jira_instance.add_watcher(
-                                    result["issue"].key, watchman)
+                                    result["issue"].key, watcher)
                             except jira.exceptions.JIRAError:
                                 print ("error adding watcher: %s, %s" %
-                                       (result["issue"].key, watchman))
+                                       (result["issue"].key, watcher))
             else:
                 error += 1
                 print("%s - %s" % (result["input_fields"]["assignee"]["name"],
