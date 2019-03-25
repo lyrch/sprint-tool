@@ -1,7 +1,9 @@
 from jira import JIRA
+import jira
 import argparse
 from datetime import datetime, timedelta
 import re
+import ast
 
 def run():
     args = parse_args()
@@ -47,10 +49,10 @@ def run():
                                    next_sprint_id,
                                    issue_keys)
     elif args.copy_epic_to_task:
-        if not args.project_id or not args.epic_id or not args.role:
+        if not args.project_id or not args.epic_id or not (args.role or args.assignees):
             print("To copy an epic you must input project, epic and role")
         copy_epic_to_task(jira_agile_instance, args.project_id, args.epic_id,
-                          args.role)
+                          args.role, args.watchers, args.assignees)
 
 
 def create_new_sprint(jira_instance, board_id, sprint_name):
@@ -78,9 +80,11 @@ def close_current_sprint(jira_instance, board_id, sprint_id):
                                 endDate=sprint.endDate,
                                 state='CLOSED')
 
-def copy_epic_to_task(jira_instance, project_id, epic_id, copy_to_role):
+def copy_epic_to_task(jira_instance, project_id, epic_id, copy_to_role,
+                      watchers, assignees):
     """copies an epic into tasks assigned to all the users in a specified role
-    """
+       or to the specified list of assignees. Assignees has higher priority"""
+
     print('Copy epic to tasks')
     print(epic_id)
 
@@ -95,7 +99,6 @@ def copy_epic_to_task(jira_instance, project_id, epic_id, copy_to_role):
     # find custom field names to get epic field
     custom_map = {fld['name']: fld['id'] for fld in jira_instance.fields()}
     epic = jira_instance.issue(epic_id)
-    role_id = jira_instance.project_roles(project_id)[copy_to_role]["id"]
     epic_flds = {"issuetype": {"name": "Task"},
                  custom_map["Epic Link"]: epic_id,
                  "project": get_values(epic.fields.project),
@@ -112,12 +115,20 @@ def copy_epic_to_task(jira_instance, project_id, epic_id, copy_to_role):
                     'project=%s and issueType=Task and "Epic Link"=%s' %
                     (project_id, epic_id))]
     task_fields = []
-    for actor in jira_instance.project_role(project_id, role_id).actors:
-        if actor.name not in existing:
-            fields = epic_flds.copy()
-            fields["assignee"] = get_values(actor, "name")
-            task_fields.append(fields)
-
+    if not assignees:
+        role_id = jira_instance.project_roles(project_id)[copy_to_role]["id"]
+        actors = jira_instance.project_role(project_id, role_id).actors
+        for actor in actors:
+            if actor.name not in existing:
+                fields = epic_flds.copy()
+                fields["assignee"] = get_values(actor, "name")
+                task_fields.append(fields)
+    else:
+        for assignee in assignees:
+            if assignee not in existing:
+                fields = epic_flds.copy()
+                fields["assignee"] = {"name": assignee}
+                task_fields.append(fields)
     success = 0
     error = 0
     existing = len(existing)
@@ -126,10 +137,20 @@ def copy_epic_to_task(jira_instance, project_id, epic_id, copy_to_role):
         for result in results:
             if result["status"] == "Success":
                 success += 1
+                if watchers:
+                    for watcher in watchers:
+                        if result["input_fields"]["assignee"]["name"] \
+                                in watchers[watcher]:
+                            try:
+                                jira_instance.add_watcher(
+                                    result["issue"].key, watcher)
+                            except jira.exceptions.JIRAError:
+                                print ("error adding watcher: %s, %s" %
+                                       (result["issue"].key, watcher))
             else:
                 error += 1
-                print("%s - %s" % result["input_fields"]["assignee"]["name"],
-                      result["error"])
+                print("%s - %s" % (result["input_fields"]["assignee"]["name"],
+                      result["error"]))
     print("Successful: %s\nErrors: %s\nExisting Tasks: %s\n" %
           (success, error, existing))
 
@@ -213,8 +234,20 @@ def start_next_sprint(jira_instance, board_id, sprint_id):
                                 endDate=end_date,
                                 state='ACTIVE')
 
+
 def parse_args():
     parser = argparse.ArgumentParser(usage='sprint-tool [OPTIONS]')
+    parser.add_argument('--assignees',
+                        type=lambda assign:
+                            ast.literal_eval(
+                                "['%s']" % assign.replace(" ", "").
+                                replace(",", "','")),
+                        action='store',
+                        dest='assignees',
+                        help="""
+                             Add users to assign tickets to in comma
+                             seperated list.
+                             Use either this or --role, but not both"""),
     parser.add_argument('-b', '--board',
                         action='store',
                         type=str,
@@ -249,7 +282,8 @@ def parse_args():
                         action='store',
                         type=str,
                         dest='role',
-                        help='The role to process the actions against'),
+                        help="""The role to process the actions against.
+                                Either use this or --assignees, not both"""),
     parser.add_argument('-r', '--roll-sprints',
                         action='store_true',
                         dest='roll_sprints',
@@ -265,14 +299,22 @@ def parse_args():
                         dest='sprint_name',
                         help="""
                             Text prefix of the Sprint name, eg if an
-                            individual sprint would be 'Team Sprint #1' the text
-                            prefix would be 'Team Sprint'
+                            individual sprint would be 'Team Sprint #1' the
+                            text prefix would be 'Team Sprint'
                             """)
     parser.add_argument('-u', '--user',
                         action='store',
                         type=str,
                         dest='jira_user',
-                        help='Username for Jira login')
+                        help='Username for Jira login'),
+    parser.add_argument('--watch',
+                        type=lambda watchdict: ast.literal_eval(watchdict),
+                        action='store',
+                        dest='watchers',
+                        help="""
+                             Add watchers for specific users. This is a
+                             a dictionary, watcher: list of watchees:
+                             {"watcher": ["to_watch_1","to_watch_2"]}""")
     args = parser.parse_args()
 
     return args
