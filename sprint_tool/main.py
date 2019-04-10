@@ -4,12 +4,13 @@ import argparse
 from datetime import datetime, timedelta
 import re
 import ast
+import copy
 
 def run():
     args = parse_args()
     print(args)
 
-    options = { 'server': args.jira_server, 'agile_rest_path': 'agile' }
+    options = {'server': args.jira_server, 'agile_rest_path': 'agile'}
     jira_agile_instance = JIRA(options,
                                auth=(args.jira_user,
                                      args.jira_password))
@@ -52,7 +53,7 @@ def run():
         if not args.project_id or not args.epic_id or not (args.role or args.assignees):
             print("To copy an epic you must input project, epic and role")
         copy_epic_to_task(jira_agile_instance, args.project_id, args.epic_id,
-                          args.role, args.watchers, args.assignees)
+                          args.role, args.watchers, args.assignees, args.labels)
 
 
 def create_new_sprint(jira_instance, board_id, sprint_name):
@@ -80,8 +81,9 @@ def close_current_sprint(jira_instance, board_id, sprint_id):
                                 endDate=sprint.endDate,
                                 state='CLOSED')
 
+
 def copy_epic_to_task(jira_instance, project_id, epic_id, copy_to_role,
-                      watchers, assignees):
+                      watchers, assignees, labels):
     """copies an epic into tasks assigned to all the users in a specified role
        or to the specified list of assignees. Assignees has higher priority"""
 
@@ -108,7 +110,8 @@ def copy_epic_to_task(jira_instance, project_id, epic_id, copy_to_role,
                  "components": get_values(epic.fields.components),
                  "fixVersions": get_values(epic.fields.fixVersions),
                  "priority": get_values(epic.fields.priority),
-                 "reporter": get_values(epic.fields.reporter, "name")}
+                 "reporter": get_values(epic.fields.reporter, "name"),
+                 "duedate": epic.fields.duedate}
     # gets the list of tasks already assigned to the epic to prevent dups
     existing = [issue.fields.assignee.name for issue in
                 jira_instance.search_issues(
@@ -120,14 +123,22 @@ def copy_epic_to_task(jira_instance, project_id, epic_id, copy_to_role,
         actors = jira_instance.project_role(project_id, role_id).actors
         for actor in actors:
             if actor.name not in existing:
-                fields = epic_flds.copy()
+                fields = copy.deepcopy(epic_flds)
                 fields["assignee"] = get_values(actor, "name")
+                if labels:
+                    for label in labels:
+                        if fields["assignee"]["name"] in labels[label]:
+                            fields["labels"].append(label)
                 task_fields.append(fields)
     else:
         for assignee in assignees:
             if assignee not in existing:
-                fields = epic_flds.copy()
+                fields = copy.deepcopy(epic_flds.copy)
                 fields["assignee"] = {"name": assignee}
+                if labels:
+                    for label in labels:
+                        if assignee in labels[label]:
+                            fields["labels"].append(label)
                 task_fields.append(fields)
     success = 0
     error = 0
@@ -273,6 +284,14 @@ def parse_args():
                         type=int,
                         dest='sprint_length',
                         help='Sprint duration in weeks')
+    parser.add_argument('--labels',
+                        type=lambda labeldict: ast.literal_eval(labeldict),
+                        action='store',
+                        dest='labels',
+                        help="""
+                             Add label to tickets of specific users. This is a
+                             a dictionary, label: list of users to label:
+                             {"label1": ["to_label_1","to_label_2"],...}""")
     parser.add_argument('-p', '--password',
                         action='store',
                         type=str,
