@@ -1,0 +1,39 @@
+<table>
+<TR>
+  <TH>Component</TH>
+  <TH>Assignee</TH>
+  <TH>Issue</TH>
+  <TH>Description</TH>
+  <TH>Progress %</TH>
+  <TH>Current Status %</TH>
+  <TH>Updates</TH>
+</TR>
+{% for item in data %}
+<TR>
+   <TD>{{item.fields.components[0].name}}</TD>
+   <TD>{{item.fields.assignee.displayName}}</TD>
+   <TD>{{item.issue.key}}</TD>
+   <TD><SPAN>{{item.fields.description}}</SPAN></TD>
+   <TD>{{item.fields.progress.percent}}</TD>
+   <TD>{{item.fields.status.name}}</TD>
+   <TD><SPAN>
+   <table>
+    <TR>
+      <TH>date</TH>
+      <TH>author</TH>
+      <TH>comment</TH>
+      <TH>time spent</TH>
+    </TR>
+    {% for worklog in item.worklogs %}
+      <TR>
+        <TD>{{worklog.worklog.created}}</TD>
+        <TD>{{worklog.author.displayName}}</TD>
+        <TD><SPAN>{{worklog.worklog.comment|default('')}}</SPAN></TD>
+        <TD>{{worklog.worklog.timeSpent}}</TD>
+      </TR>
+    {% endfor %}
+   </table>
+   </SPAN></TD>
+</TR>
+{% endfor %}
+</table>
