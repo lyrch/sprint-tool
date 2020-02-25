@@ -1,39 +1,93 @@
-<table>
+{% set date = ( "2020-02-24T00:00:00.000Z" | iso8601_to_time)  %}
+{% set team = [] %}
+{% set status = ["In Progress", "Blocked"] %}
+<table class="fixed-table confluenceTable">
+<colgroup>
+	<col style="width: 100px; " />
+	<col style="width: 100px; " />
+	<col style="width: 100px; " />
+	<col style="width: 150px; " />
+	<col style="width: 200px; " />
+	<col style="width: 100px; " />
+	<col style="width: 100px; " />
+	<col style="width: 600px; " />
+</colgroup>
+<thead>
 <TR>
   <TH>Component</TH>
   <TH>Assignee</TH>
   <TH>Issue</TH>
-  <TH>Description</TH>
+  <TH>Summary</TH>
+  <TH class="description" >Description</TH>
   <TH>Progress %</TH>
   <TH>Current Status %</TH>
   <TH>Updates</TH>
 </TR>
+</thead>
+<tbody>
 {% for item in data %}
-<TR>
-   <TD>{{item.fields.components[0].name}}</TD>
-   <TD>{{item.fields.assignee.displayName}}</TD>
-   <TD>{{item.issue.key}}</TD>
-   <TD><SPAN>{{item.fields.description}}</SPAN></TD>
-   <TD>{{item.fields.progress.percent}}</TD>
-   <TD>{{item.fields.status.name}}</TD>
-   <TD><SPAN>
-   <table>
-    <TR>
-      <TH>date</TH>
-      <TH>author</TH>
-      <TH>comment</TH>
-      <TH>time spent</TH>
-    </TR>
+  {# check if issue had any changes #}
+  {% set changed = false %}
+  {% for event in item.events %}
+    {% if ( event.event.created | iso8601_to_time ) > date %}
+      {% set changed = true %}
+      {% break %}
+    {% endif %}
+  {% endfor %}
+  {% if ( item.fields.updated | iso8601_to_time ) > date or
+        item.fields.status.name in status %}
+  <TR>
+     <TD>{{item.fields.components[0].name}}</TD>
+     <TD>
+     {% if  item.fields.assignee is defined %}
+      {% if item.fields.assignee.displayName in team %}
+        {{ item.fields.assignee.displayName }}
+      {% else %}
+      <p style="background-color:Tomato;">{{ item.fields.assignee.displayName }}</p>
+      {% endif %}
+     {% else %}
+     <p style="background-color:Tomato;">Unassigned</p>
+     {%endif%}
+     </TD>
+     <TD>{{item.issue.key}}</TD>
+     <TD>{{item.fields.summary}}</TD>
+     <TD>{{item.fields.description}}</TD>
+     <TD>{{item.fields.progress.percent}}</TD>
+     <TD>{{item.fields.status.name}}</TD>
+    {% set logged = { 'flag': False } %}
     {% for worklog in item.worklogs %}
-      <TR>
-        <TD>{{worklog.worklog.created}}</TD>
-        <TD>{{worklog.author.displayName}}</TD>
-        <TD><SPAN>{{worklog.worklog.comment|default('')}}</SPAN></TD>
-        <TD>{{worklog.worklog.timeSpent}}</TD>
-      </TR>
+      {% if ( worklog.worklog.created | iso8601_to_time ) > date %}
+        {%  if logged.update({'flag':True}) %}{%- endif %} 
+      {% endif %}
     {% endfor %}
-   </table>
-   </SPAN></TD>
-</TR>
+    {% if logged.flag == True %}
+     <TD>
+     <table>
+      <TR>
+        <TH>date</TH>
+        <TH>author</TH>
+        <TH>comment</TH>
+        <TH>time spent</TH>
+      </TR>
+      {% for worklog in item.worklogs %}
+        {% if ( worklog.worklog.created | iso8601_to_time ) > date %}
+          <TR>
+            <TD>{{worklog.worklog.created | iso8601_to_time }}</TD>
+            <TD>{{worklog.author.displayName}}</TD>
+            <TD>{{worklog.worklog.comment|default('')}}</TD>
+            <TD>{{worklog.worklog.timeSpent}}</TD>
+          </TR>
+        {% endif %}
+      {% endfor %}
+     </table>
+     </TD>
+    {% else %}
+    <TD class="highlight-red confluenceTd" data-highlight-colour="red" title="Background colour : Red" style="background-color:Tomato;">
+    No work was logged
+     </TD>
+    {% endif %}
+  </TR>
+  {% endif %}
 {% endfor %}
+</tbody>
 </table>

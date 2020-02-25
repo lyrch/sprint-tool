@@ -52,7 +52,7 @@ def run():
                                    issue_keys)
     elif args.report:
         report(jira_agile_instance, args.sprint_name, args.jira_board,
-                args.date, args.template, args.output)
+                args.template, args.output)
     elif args.copy_epic_to_task:
         if not args.project_id or not args.epic_id or not \
                 (args.role or args.assignees):
@@ -296,14 +296,6 @@ def start_next_sprint(jira_instance, board_id, sprint_id):
                                 state='ACTIVE')
 
 
-def valid_date(s):
-    try:
-        datetime.strptime(s, "%Y/%m/%d")
-    except ValueError:
-        msg = "Not a valid date: '{0}'.".format(s)
-        raise argparse.ArgumentTypeError(msg)
-    return s
-
 def flatten(d, parent_key='', sep='_'):
     """
     https://stackoverflow.com/a/6027615
@@ -328,49 +320,52 @@ def flatten(d, parent_key='', sep='_'):
 
 def jira2dict(item):
     data = {}
-    for (key,value) in vars(item).items():
-        if '_' not in key and isinstance(value,str):
+    raw = item if isinstance(item, dict) else vars(item)
+    good = (str, int, dict, list, bool)
+    for (key,value) in raw.items():
+        if '_' not in key and isinstance(value, good):
             data[key] = value
     return data
 
-def report(jira_instance, sprint_name, board, date, template, output):
+def report(jira_instance, sprint_name, board, template, output):
     report = []
     current_sprints = get_current_sprints(jira_instance, board)
     sprint_id = find_current_sprint_id(current_sprints, sprint_name)
-    jql_query = 'sprint={sprint_id} AND (updated >= "{date}" OR worklogDate >= "{date}")'.format(
-        sprint_id=sprint_id, date=date)
-    updated_issues = jira_instance.search_issues(jql_query, expand="changelog,worklog")
-    for issue in updated_issues:
+    issues = jira_instance.search_issues(f"sprint={sprint_id}",
+                                         expand="changelog")
+    for issue in issues:
         issue_data = jira2dict(issue)
-        fields = { key:value for (key,value) in issue.raw['fields'].items() if 'custom' not in key}
+        fields = jira2dict(issue.raw['fields'])
         events = []
         for event in issue.changelog.histories:
-            created = datetime.strptime(event.created[:-5], "%Y-%m-%dT%H:%M:%S.%f")
-            if created > datetime.strptime(date, "%Y/%m/%d"):
-                events.append({
-                    'event': jira2dict(event),
-                    'author': jira2dict(event.author),
-                    'changes': [jira2dict(item) for item in event.items]
-                    })
+            events.append({
+                'event': jira2dict(event),
+                'author': jira2dict(event.author),
+                'changes': [jira2dict(item) for item in event.items]
+                })
         worklogs = []
         for worklog in jira_instance.worklogs(issue):
-            created = datetime.strptime(worklog.created[:-5], "%Y-%m-%dT%H:%M:%S.%f")
-            if created > datetime.strptime(date, "%Y/%m/%d"):
-                worklogs.append({
-                    'worklog': jira2dict(worklog),
-                    'author': jira2dict(worklog.author)})
+            worklogs.append({
+                'worklog': jira2dict(worklog),
+                'author': jira2dict(worklog.author)})
         report.append({
             'issue': issue_data,
             'fields': fields,
             'events': events,
             'worklogs': worklogs
             })
-    from jinja2 import Template
     with open(output + '.json', 'w') as file_:
         import json
-        json.dump(report, file_, indent=4, sort_keys=True)
-    with open(template, 'r') as file_:
-        template = Template(file_.read())
+        json.dump(report, file_, indent=4, sort_keys=True, default=lambda o: '<not serializable>')
+    from jinja2 import Environment, FileSystemLoader
+    import arrow
+    env = Environment(loader=FileSystemLoader('./'),
+                      extensions=['jinja2.ext.loopcontrols'])
+    def datetimeformat(value):
+        return arrow.get(value).date()
+
+    env.filters['iso8601_to_time'] = datetimeformat
+    template = env.get_template(template)
     with open(output, 'w') as file_:
         file_.write(template.render(data=report))
 
@@ -493,9 +488,7 @@ def parse_args():
                         action='store_true',
                         dest='report',
                         help="""
-                             Create report tickets progress from the last two
-                             days, or specify the last report day with '--date'
-                             option.
+                             Create report for specified sprint
                         """)
     parser.add_argument('--template',
                         action='store',
@@ -509,12 +502,6 @@ def parse_args():
                         default='report.html',
                         type=str,
                         help='Report output path')
-    parser.add_argument('--date',
-                        action='store',
-                        type=valid_date,
-                        dest='date',
-                        help='Date of previous report')
-
     args = parser.parse_args()
 
     return args
