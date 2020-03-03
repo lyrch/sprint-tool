@@ -9,7 +9,11 @@ import copy
 def run():
     args = parse_args()
     print(args)
-    options = {'server': args.jira_server, 'agile_rest_path': 'agile'}
+    options = {
+        'server': args.jira_server,
+        'agile_rest_path': 'agile',
+        'verify': False
+    }
     jira_agile_instance = JIRA(options,
                                auth=(args.jira_user,
                                      args.jira_password))
@@ -46,6 +50,9 @@ def run():
         move_issues_to_next_sprint(jira_agile_instance,
                                    next_sprint_id,
                                    issue_keys)
+    elif args.report:
+        report(jira_agile_instance, args.sprint_name, args.jira_board,
+                args.template, args.output)
     elif args.copy_epic_to_task:
         if not args.project_id or not args.epic_id or not \
                 (args.role or args.assignees):
@@ -289,6 +296,81 @@ def start_next_sprint(jira_instance, board_id, sprint_id):
                                 state='ACTIVE')
 
 
+def flatten(d, parent_key='', sep='_'):
+    """
+    https://stackoverflow.com/a/6027615
+    """
+    import collections
+    items = []
+    for k, v in d.items():
+        new_key = parent_key + sep + k if parent_key else k
+        if isinstance(v, collections.MutableMapping):
+            items.extend(flatten(v, new_key, sep=sep).items())
+        elif isinstance(v, list):
+            i = 0
+            for sk in v:
+                if isinstance(v, collections.MutableMapping):
+                    items.extend(flatten(sk, new_key + sep + str(i) , sep=sep).items())
+                else:
+                    items.append((new_key + sep + str(i), sk))
+                i += 1
+        else:
+            items.append((new_key, v))
+    return dict(items)
+
+def jira2dict(item):
+    data = {}
+    raw = item if isinstance(item, dict) else vars(item)
+    good = (str, int, dict, list, bool)
+    for (key,value) in raw.items():
+        if '_' not in key and isinstance(value, good):
+            data[key] = value
+    return data
+
+def report(jira_instance, sprint_name, board, template, output):
+    report = []
+    current_sprints = get_current_sprints(jira_instance, board)
+    sprint_id = find_current_sprint_id(current_sprints, sprint_name)
+    issues = jira_instance.search_issues(f"sprint={sprint_id}",
+                                         expand="changelog")
+    for issue in issues:
+        issue_data = jira2dict(issue)
+        fields = jira2dict(issue.raw['fields'])
+        events = []
+        for event in issue.changelog.histories:
+            events.append({
+                'event': jira2dict(event),
+                'author': jira2dict(event.author),
+                'changes': [jira2dict(item) for item in event.items]
+                })
+        worklogs = []
+        for worklog in jira_instance.worklogs(issue):
+            worklogs.append({
+                'worklog': jira2dict(worklog),
+                'author': jira2dict(worklog.author)})
+        report.append({
+            'issue': issue_data,
+            'fields': fields,
+            'events': events,
+            'worklogs': worklogs
+            })
+    with open(output + '.json', 'w') as file_:
+        import json
+        json.dump(report, file_, indent=4, sort_keys=True, default=lambda o: '<not serializable>')
+    from jinja2 import Environment, FileSystemLoader
+    import arrow
+    env = Environment(loader=FileSystemLoader('./'),
+                      extensions=['jinja2.ext.loopcontrols'])
+    def datetimeformat(value):
+        return arrow.get(value).date()
+
+    env.filters['iso8601_to_time'] = datetimeformat
+    template = env.get_template(template)
+    with open(output, 'w') as file_:
+        file_.write(template.render(data=report))
+
+
+
 def parse_args():
     parser = argparse.ArgumentParser(usage='sprint-tool [OPTIONS]')
     parser.add_argument('--assignees',
@@ -402,6 +484,24 @@ def parse_args():
                              Add watchers for specific users. This is a
                              a dictionary, watcher: list of watchees:
                              {"watcher": ["to_watch_1","to_watch_2"]}""")
+    parser.add_argument('--report',
+                        action='store_true',
+                        dest='report',
+                        help="""
+                             Create report for specified sprint
+                        """)
+    parser.add_argument('--template',
+                        action='store',
+                        dest='template',
+                        default='report.html.j2',
+                        type=str,
+                        help='Path to Jinja template to process for the report')
+    parser.add_argument('--output',
+                        action='store',
+                        dest='output',
+                        default='report.html',
+                        type=str,
+                        help='Report output path')
     args = parser.parse_args()
 
     return args
