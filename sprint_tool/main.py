@@ -4,6 +4,7 @@ import argparse
 from datetime import datetime, timedelta
 import ast
 import copy
+import os
 
 
 def run():
@@ -364,7 +365,11 @@ def report(jira_instance, sprint_name, board, template, output):
     def datetimeformat(value):
         return arrow.get(value).date()
 
+    def env_override(value, key):
+        return os.getenv(key, value)
+
     env.filters['iso8601_to_time'] = datetimeformat
+    env.filters['env_override'] = env_override
     template = env.get_template(template)
     with open(output, 'w') as file_:
         file_.write(template.render(data=report))
