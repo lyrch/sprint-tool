@@ -1,5 +1,6 @@
-{% set date = ( "2020-02-24T00:00:00.000Z" | iso8601_to_time)  %}
-{% set team = [] %}
+{% set date = ("2020-02-25T00:00:00.000Z" | env_override('JIRA_DATE') | iso8601_to_time)  %}
+{% set team_raw = ('' | env_override('TEAM_MEMBERS')) %}
+{% set team = team_raw.split(',') %}
 {% set status = ["In Progress", "Blocked"] %}
 <table class="fixed-table confluenceTable">
 <colgroup>
