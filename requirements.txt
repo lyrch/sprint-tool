@@ -1,1 +1,2 @@
 jira[opt,cli,testing]
+jinja2
