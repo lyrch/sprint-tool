@@ -4,6 +4,7 @@ import argparse
 from datetime import datetime, timedelta
 import ast
 import copy
+import sys
 
 
 def run():
@@ -50,9 +51,10 @@ def run():
         if not args.project_id or not args.epic_id or not \
                 (args.role or args.assignees):
             print("To copy an epic you must input project, epic and role")
+            sys.exit()
         copy_epic_to_task(jira_agile_instance, args.project_id, args.epic_id,
                           args.role, args.watchers, args.assignees,
-                          args.labels)
+                          args.labels, args.prefixes)
     elif args.ticket_comment:
         comment_by_query(jira_agile_instance, args.ticket_comment_query,
                          args.ticket_comment, args.ticket_comment_manager_cc,
@@ -119,9 +121,11 @@ def comment_by_query(jira_instance, query, comment, cc_to_manager,
 
 
 def copy_epic_to_task(jira_instance, project_id, epic_id, copy_to_role,
-                      watchers, assignees, labels):
+                      watchers, assignees, labels, prefixes):
     """copies an epic into tasks assigned to all the users in a specified role
-       or to the specified list of assignees. Assignees has higher priority"""
+       or to the specified list of assignees. Assignees has higher priority.
+       If there are prefixes, unique is prefix + summary, which allows the
+       same assignee multiple tickets. Else, it is one ticket per person"""
 
     print('Copy epic to tasks')
     print(epic_id)
@@ -133,6 +137,27 @@ def copy_epic_to_task(jira_instance, project_id, epic_id, copy_to_role,
             return [{f: getattr(val, f)} for val in field]
         else:
             return {f: getattr(field, f)}
+
+    # if a role is passed in, get role users and put in assignee list.
+    if not assignees:
+        role_id = jira_instance.project_roles(project_id)[copy_to_role]["id"]
+        actors = jira_instance.project_role(project_id, role_id).actors
+        assignees = [actor.name for actor in actors]
+    # verify that there is one user per prefix and that all expected assignees
+    # have a prefix
+    if prefixes:
+        prefix_set = set([prefixes[prefix][0] for prefix in prefixes])
+        if set(assignees) != prefix_set:
+            print("prefixes are unique and can only have one assignee")
+            print "These users are assignees with no prefixes: %s" % \
+                (set(assignees).difference(prefix_set))
+            print "These users have prefixes but are not assignees: %s" % \
+                (prefix_set.difference(set(assignees)))
+            sys.exit()
+        for prefix in prefixes:
+            if len(prefixes[prefix]) != 1:
+                print("If you use prefixes, they are unique per user")
+                sys.exit()
 
     # find custom field names to get epic field
     custom_map = {fld['name']: fld['id'] for fld in jira_instance.fields()}
@@ -149,33 +174,34 @@ def copy_epic_to_task(jira_instance, project_id, epic_id, copy_to_role,
                  "reporter": get_values(epic.fields.reporter, "name"),
                  "duedate": epic.fields.duedate}
     # gets the list of tasks already assigned to the epic to prevent dups
-    existing = [issue.fields.assignee.name for issue in
+    # unique is either summary, if prefixes, or assignee
+    # max results defaults to 50, we set 100 as we are currently well below.
+    existing = [issue.fields.summary if prefixes
+                else issue.fields.assignee.name for issue in
                 jira_instance.search_issues(
                     'project=%s and issueType=Task and "Epic Link"=%s' %
-                    (project_id, epic_id))]
+                    (project_id, epic_id), maxResults=100)]
     task_fields = []
-    if not assignees:
-        role_id = jira_instance.project_roles(project_id)[copy_to_role]["id"]
-        actors = jira_instance.project_role(project_id, role_id).actors
-        for actor in actors:
-            if actor.name not in existing:
-                fields = copy.deepcopy(epic_flds)
-                fields["assignee"] = get_values(actor, "name")
-                if labels:
-                    for label in labels:
-                        if fields["assignee"]["name"] in labels[label]:
-                            fields["labels"].append(label)
-                task_fields.append(fields)
-    else:
-        for assignee in assignees:
+    for assignee in assignees:
+        summary_prefix = [prefix for prefix in prefixes
+                          if prefixes[prefix][0] == assignee]
+        fields = copy.deepcopy(epic_flds.copy())
+        fields["assignee"] = {"name": assignee}
+        if labels:
+            for label in labels:
+                if assignee in labels[label]:
+                    fields["labels"].append(label)
+        if prefixes:
+            summary = fields["summary"]
+            for prefix in summary_prefix:
+                fields = copy.deepcopy(fields.copy())
+                fields["summary"] = "[%s] %s" % (prefix, summary)
+                if fields["summary"] not in existing:
+                    task_fields.append(fields)
+        else:
             if assignee not in existing:
-                fields = copy.deepcopy(epic_flds.copy())
-                fields["assignee"] = {"name": assignee}
-                if labels:
-                    for label in labels:
-                        if assignee in labels[label]:
-                            fields["labels"].append(label)
                 task_fields.append(fields)
+
     success = 0
     error = 0
     existing = len(existing)
@@ -340,6 +366,16 @@ def parse_args():
                         type=str,
                         dest='jira_password',
                         help='User password for Jira login')
+    parser.add_argument('--summary-prefix',
+                        type=lambda prefixdict: ast.literal_eval(prefixdict),
+                        action='store',
+                        dest='prefixes',
+                        help="""
+                             Add prefixes to tickets of specific
+                             users. This is a dictionary, same format as
+                             labels. It is added to the title within brackets
+                             (e.g. [prefix]). Prefixes are unique, so there
+                             can be only one assignee per prefix""")
     parser.add_argument('--role',
                         action='store',
                         type=str,
