@@ -156,10 +156,10 @@ def copy_epic_to_task(jira_instance, project_id, epic_id, copy_to_role,
         prefix_set = set([prefixes[prefix][0] for prefix in prefixes])
         if set(assignees) != prefix_set:
             print("prefixes are unique and can only have one assignee")
-            print "These users are assignees with no prefixes: %s" % \
-                (set(assignees).difference(prefix_set))
-            print "These users have prefixes but are not assignees: %s" % \
-                (prefix_set.difference(set(assignees)))
+            print("These users are assignees with no prefixes: %s" % \
+                (set(assignees).difference(prefix_set)))
+            print("These users have prefixes but are not assignees: %s" % \
+                (prefix_set.difference(set(assignees))))
             sys.exit()
         for prefix in prefixes:
             if len(prefixes[prefix]) != 1:
@@ -357,7 +357,7 @@ def report(jira_instance, sprint_name, board, template, output):
     report = []
     current_sprints = get_current_sprints(jira_instance, board)
     sprint_id = find_current_sprint_id(current_sprints, sprint_name)
-    issues = jira_instance.search_issues(f"sprint={sprint_id}",
+    issues = jira_instance.search_issues("sprint={sprint_id}",
                                          expand="changelog")
     for issue in issues:
         issue_data = jira2dict(issue)
