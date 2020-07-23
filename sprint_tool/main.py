@@ -6,6 +6,8 @@ import ast
 import copy
 import os
 import sys
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def run():
     args = parse_args()
@@ -20,37 +22,47 @@ def run():
                                      args.jira_password))
 
     if args.roll_sprints:
-        # Get lists of the current open sprints and the future sprints for this
-        # board.
+
         current_sprints = get_current_sprints(jira_agile_instance,
                                               args.jira_board)
-        future_sprints = get_future_sprints(jira_agile_instance,
-                                            args.jira_board)
 
-        # Get the ids of the sprints we will want to close and start
-        current_sprint_id = find_current_sprint_id(current_sprints,
+        if can_sprint_roll_over(current_sprints[-1]) or args.force:
+
+            # Get lists of the current open sprints and the future sprints for this
+            # board.
+    
+            future_sprints = get_future_sprints(jira_agile_instance,
+                                                args.jira_board)
+    
+            # Get the ids of the sprints we will want to close and start
+            current_sprint_id = find_current_sprint_id(current_sprints,
+                                                       args.sprint_name)
+            next_sprint_id = find_next_sprint_id(future_sprints,
+                                                 args.sprint_name)
+    
+            new_sprint_name = find_new_sprint_name(future_sprints,
                                                    args.sprint_name)
-        next_sprint_id = find_next_sprint_id(future_sprints,
-                                             args.sprint_name)
+    
+            issue_keys = get_unfinished_issue_keys(jira_agile_instance,
+                                                   args.jira_board,
+                                                   current_sprint_id)
+            create_new_sprint(jira_agile_instance,
+                              args.jira_board,
+                              new_sprint_name)
+            close_current_sprint(jira_agile_instance,
+                                 args.jira_board,
+                                 current_sprint_id)
+            start_next_sprint(jira_agile_instance,
+                              args.jira_board,
+                              next_sprint_id)
+            move_issues_to_next_sprint(jira_agile_instance,
+                                       next_sprint_id,
+                                       issue_keys)
+            
+            print("Yay, the sprint rolled over!!")
+        else:
+            print("Won't roll over the sprint since it's not the time. You can force it by using --force.")
 
-        new_sprint_name = find_new_sprint_name(future_sprints,
-                                               args.sprint_name)
-
-        issue_keys = get_unfinished_issue_keys(jira_agile_instance,
-                                               args.jira_board,
-                                               current_sprint_id)
-        create_new_sprint(jira_agile_instance,
-                          args.jira_board,
-                          new_sprint_name)
-        close_current_sprint(jira_agile_instance,
-                             args.jira_board,
-                             current_sprint_id)
-        start_next_sprint(jira_agile_instance,
-                          args.jira_board,
-                          next_sprint_id)
-        move_issues_to_next_sprint(jira_agile_instance,
-                                   next_sprint_id,
-                                   issue_keys)
     elif args.report:
         report(jira_agile_instance, args.sprint_name, args.jira_board,
                 args.template, args.output)
@@ -400,6 +412,20 @@ def report(jira_instance, sprint_name, board, template, output):
         file_.write(template.render(data=report))
 
 
+def can_sprint_roll_over(active_sprint):
+    """
+    Sprints are typically two weeks intervals.
+    Check to see if we can
+    """
+    current_date = datetime.now().isoformat().split('T')[0]
+    print("Current Date: %s" % current_date)
+    end_date = active_sprint.endDate.split('T')[0]
+    print("Sprint End Date: %s" % end_date)
+
+    if current_date >= end_date:
+        return True
+
+    return False
 
 def parse_args():
     parser = argparse.ArgumentParser(usage='sprint-tool [OPTIONS]')
@@ -542,6 +568,11 @@ def parse_args():
                         default='report.html',
                         type=str,
                         help='Report output path')
+    parser.add_argument('--force',
+                        action='store_true',
+                        dest='force',
+                        help="""To force an action. Typically used with --roll-sprint
+                        to force sprint roll over if it's before the end sprint date.""")
     args = parser.parse_args()
 
     return args
