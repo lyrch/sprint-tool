@@ -26,28 +26,29 @@ def run():
         current_sprints = get_current_sprints(jira_agile_instance,
                                               args.jira_board)
 
+        # Get lists of the current open sprints and the future sprints for this
+        # board.
+
+        future_sprints = get_future_sprints(jira_agile_instance,
+                                            args.jira_board)
+        if len(future_sprints) == 0:
+            raise LookupError("No future sprints found")
+
+        # Get the ids of the sprints we will want to close and start
+        current_sprint_id = find_current_sprint_id(current_sprints,
+                                                   args.sprint_name)
+        next_sprint_id = find_next_sprint_id(future_sprints,
+                                             args.sprint_name)
+
+        new_sprint_name = find_new_sprint_name(future_sprints,
+                                               args.sprint_name)
+
+        issue_keys = get_unfinished_issue_keys(jira_agile_instance,
+                                               args.jira_board,
+                                               current_sprint_id)
+
         if can_sprint_roll_over(current_sprints[-1]) or args.force:
 
-            # Get lists of the current open sprints and the future sprints for this
-            # board.
-    
-            future_sprints = get_future_sprints(jira_agile_instance,
-                                                args.jira_board)
-            if len(future_sprints) == 0:
-                raise LookupError("No future sprints found")
-    
-            # Get the ids of the sprints we will want to close and start
-            current_sprint_id = find_current_sprint_id(current_sprints,
-                                                       args.sprint_name)
-            next_sprint_id = find_next_sprint_id(future_sprints,
-                                                 args.sprint_name)
-
-            new_sprint_name = find_new_sprint_name(future_sprints,
-                                                   args.sprint_name)
-    
-            issue_keys = get_unfinished_issue_keys(jira_agile_instance,
-                                                   args.jira_board,
-                                                   current_sprint_id)
             create_new_sprint(jira_agile_instance,
                               args.jira_board,
                               new_sprint_name)
@@ -250,17 +251,16 @@ def copy_epic_to_task(jira_instance, project_id, epic_id, copy_to_role,
 
 
 def find_current_sprint_id(sprints, sprint_name):
-    sprint_id = None
+    latest_sprint = None
 
     for sprint in sprints:
         # Split the sprint string into name and number then trim whitespace
         split = [token.strip() for token in sprint.name.split('#')]
         if sprint_name == split[0]:
-            sprint_id = sprint.id
+            latest_sprint = sprint
 
-    print('Current sprint:')
-    print(sprint_id)
-    return sprint_id
+    print("Current sprint {} (id: {})".format(latest_sprint.name, latest_sprint.id))
+    return latest_sprint.id
 
 
 # This should probably have different logic allowing for a different token to
@@ -280,26 +280,22 @@ def find_new_sprint_name(sprints, sprint_name):
 
 
 def find_next_sprint_id(sprints, sprint_name):
-    sprint_id = None
+    next_sprint = None
     sprint_number = None
 
     for sprint in sprints:
         # Split the sprint string into name and number then trim whitespace
         split = [token.strip() for token in sprint.name.split('#')]
-        print("SPLIT LAST")
-        print(split)
-        print(split[-1])
         split_sprint_number = int(split[-1])
         if sprint_name == split[0]:
             # Find the lowest sprint number in the list and its id
             if (sprint_number is None) or \
                     (split_sprint_number < sprint_number):
                 sprint_number = split_sprint_number
-                sprint_id = sprint.id
+                next_sprint = sprint
 
-    print('Next sprint:')
-    print(sprint_id)
-    return sprint_id
+    print('Next sprint: {} (id: {})'.format(next_sprint.name, next_sprint.id))
+    return next_sprint.id
 
 
 def get_current_sprints(jira_instance, board_id):
