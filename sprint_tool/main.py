@@ -33,13 +33,15 @@ def run():
     
             future_sprints = get_future_sprints(jira_agile_instance,
                                                 args.jira_board)
+            if len(future_sprints) == 0:
+                raise LookupError("No future sprints found")
     
             # Get the ids of the sprints we will want to close and start
             current_sprint_id = find_current_sprint_id(current_sprints,
                                                        args.sprint_name)
             next_sprint_id = find_next_sprint_id(future_sprints,
                                                  args.sprint_name)
-    
+
             new_sprint_name = find_new_sprint_name(future_sprints,
                                                    args.sprint_name)
     
